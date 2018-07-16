@@ -42,3 +42,45 @@ class GraphAttentionLayer(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+
+
+class RelationLayer(nn.Module):
+    """
+    Simple Relation layer
+    """
+
+    def __init__(self, in_features, out_features, dropout, alpha, concat=True):
+        super(GraphAttentionLayer, self).__init__()
+        self.dropout = dropout
+        self.in_features = in_features
+        self.out_features = out_features
+        self.alpha = alpha
+        self.concat = concat
+
+        self.W = nn.Parameter(nn.init.xavier_uniform(torch.Tensor(in_features*2, out_features).type(torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+
+        self.leakyrelu = nn.LeakyReLU(self.alpha)
+
+    def forward(self, inputs, adj):
+        N, _ = inputs.size()
+        inputs = inputs.view(N, 1, self.in_features) # (2708, 2708, 8)
+        inputs = inputs.repeat(1, N, 1)
+        inputs_T = inputs.permute(1, 0, 2) # (2708, 2708, 8)
+        h = torch.cat([inputs, inputs_T], axis=-1)
+        h = torch.matmul(h, self.W)
+        adj = adj.view(N, N, 1).repeat(1, 1, self.out_features*2)
+
+
+        zero_vec = -9e15*torch.ones_like(h)
+
+        h = torch.where(adj > 0, h, zero_vec)
+        h = F.softmax(h, dim=1)
+        h = F.dropout(h, self.dropout, training=self.training)
+
+        if self.concat:
+            return self.leakyrelu(h)
+        else:
+            return h
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
